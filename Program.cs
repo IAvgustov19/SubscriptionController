@@ -72,6 +72,7 @@ public class Handler
         Random ran = new Random();
 
         //Убирать подписку если срок вышел
+        //Сначала проверяеться у кого закончилась подписка, а потом добавляю, кто попал под это
         response = await tableClient.SessionExec(async session =>
         {
             var query = @"
@@ -119,7 +120,6 @@ public class Handler
         response = await tableClient.SessionExec(async session =>
         {
             var query = @"
-        DECLARE $date AS Date;
 
         SELECT ID FROM accounts VIEW SubIndex
         WHERE Subscription == false";
@@ -137,75 +137,28 @@ public class Handler
 
         for (int i = 0; i < resultSet.Rows.Count; i++)
         {
-        response = await tableClient.SessionExec(async session =>
-        {
-            var query = @"
+            response = await tableClient.SessionExec(async session =>
+            {
+                var query = @"
         DECLARE $id AS Uint64;
         DECLARE $countFree AS Uint8;
 
         UPSERT INTO accounts (ID, CountFreeEvents) VALUES ($id, $countFree)";
 
-            return await session.ExecuteDataQuery(
-                query: query,
-                txControl: TxControl.BeginSerializableRW().Commit(),
-                parameters: new Dictionary<string, YdbValue>
-                {
+                return await session.ExecuteDataQuery(
+                    query: query,
+                    txControl: TxControl.BeginSerializableRW().Commit(),
+                    parameters: new Dictionary<string, YdbValue>
+                    {
                         { "$id", YdbValue.MakeUint64((ulong)resultSet.Rows[i][0].GetOptionalUint64()) },
                         { "$countFree", YdbValue.MakeUint8(3) },
-                }
-            );
-        });
-        response.Status.EnsureSuccess();
+                    }
+                );
+            });
+            response.Status.EnsureSuccess();
         }
-
-        SendEmail(resultSet.Rows, ExpiredDateType.OneDay);
 
         return new Response(200, "Hello, world!");
-    }
-    public void SendEmail(IReadOnlyList<Row> rows, ExpiredDateType type)
-    {
-        MimeMessage message = new MimeMessage();
-        SmtpClient smtpClient = new SmtpClient();
-        message.From.Add(new MailboxAddress("Timeline", "avgustovj@gmail.com"));
-        message.Subject = "12333";
-
-       
-        if(type == ExpiredDateType.OneDay)
-        {
-            message.Body = new TextPart(MimeKit.Text.TextFormat.Html)
-            {
-                Text = "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\r\n<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\r\n<link href=\"https://fonts.googleapis.com/css2?family=Montserrat:wght@600&display=swap\" rel=\"stylesheet\">\r\n<html>\r\n<body>\r\n    <h1 style=\"font-family: 'Montserrat', sans-serif;\">\r\n        Здравствуйте, завтра произойдет автосписание за подписку Timeline Pro\r\n    </h1>\r\n</body>\r\n</html>"
-            };
-        }
-        else if(type == ExpiredDateType.ThreeDay)
-        {
-            message.Body = new TextPart(MimeKit.Text.TextFormat.Html)
-            {
-                Text = "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\r\n<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\r\n<link href=\"https://fonts.googleapis.com/css2?family=Montserrat:wght@600&display=swap\" rel=\"stylesheet\">\r\n<html>\r\n<body>\r\n    <h1 style=\"font-family: 'Montserrat', sans-serif;\">\r\n        Здравствуйте, через 3 дня произойдет автосписание за подписку Timeline Pro\r\n    </h1>\r\n</body>\r\n</html>"
-            };
-        }
-       
-        try
-        {
-            smtpClient.Connect("smtp.gmail.com", 465, true);
-            smtpClient.Authenticate("avgustovj@gmail.com", "notvootjcwrmilyy");
-
-            Parallel.For(0, rows.Count, (num) =>
-            {
-                message.To.Add(MailboxAddress.Parse(rows[num][0].GetOptionalUtf8()));
-                smtpClient.Send(message);
-                message.To.Clear();
-            });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex.ToString());
-        }
-        finally
-        {
-            smtpClient.Disconnect(true);
-            smtpClient.Dispose();
-        }
     }
     public static void Main() { }
 }
